@@ -1,0 +1,9 @@
+psycopg2-binary
+sqlalchemy
+playwright
+requests
+beautifulsoup4
+pandas
+python-dotenv
+lxml
+langdetect

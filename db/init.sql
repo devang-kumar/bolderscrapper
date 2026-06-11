@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS job_postings (
+    id SERIAL PRIMARY KEY,
+    source VARCHAR(255) NOT NULL,
+    role_title VARCHAR(255) NOT NULL,
+    role_category VARCHAR(255),
+    job_function VARCHAR(255),
+    industry VARCHAR(255),
+    seniority_level VARCHAR(255),
+    company_size VARCHAR(255),
+    employment_type VARCHAR(255),
+    work_type VARCHAR(255),
+    country VARCHAR(255),
+    language_required VARCHAR(255),
+    rate_raw VARCHAR(255),
+    rate_normalized_eur_day NUMERIC,
+    rate_type VARCHAR(255),
+    skills TEXT[],
+    posted_date DATE,
+    scraped_date DATE DEFAULT CURRENT_DATE
+);
