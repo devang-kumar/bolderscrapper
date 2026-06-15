@@ -129,8 +129,8 @@ top_industry = filtered_df["industry"].mode()[0] if not filtered_df.empty else "
 kpi3.metric("Top Industry", top_industry)
 
 valid_rates = filtered_df.dropna(subset=["rate_normalized_eur_day"])
-avg_rate = f"EUR {valid_rates['rate_normalized_eur_day'].mean():.2f}" if not valid_rates.empty else "N/A"
-kpi4.metric("Avg Daily Rate", avg_rate)
+avg_rate = f"€{valid_rates['rate_normalized_eur_day'].mean():,.0f}" if not valid_rates.empty else "N/A"
+kpi4.metric("Avg Daily Rate (EUR)", avg_rate)
 
 lang_req_pct = (
     filtered_df["language_required"].notna().sum() / len(filtered_df) * 100
