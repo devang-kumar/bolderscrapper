@@ -39,11 +39,11 @@ It was built as a data engineering solution to answer the question:
 │                       Scraper Layer                           │
 │                     scraper/main.py                           │
 │                                                               │
-│  ┌──────────┐ ┌──────────┐ ┌───────┐ ┌────────┐ ┌────────┐  │
-│  │Freelancer│ │ LinkedIn │ │ EURES │ │ Indeed │ │  Malt  │  │
-│  │   API    │ │  (HTML)  │ │ (API) │ │ (HTML) │ │ (HTML) │  │
-│  └────┬─────┘ └────┬─────┘ └──┬────┘ └───┬────┘ └───┬────┘  │
-│       └────────────┴──────────┴──────────┴──────────┘        │
+│  ┌──────────┐ ┌──────────┐ ┌───────┐ ┌────────┐ ┌────────┐    │
+│  │Freelancer│ │ LinkedIn │ │ EURES │ │ Indeed │ │  Malt  │    │
+│  │   API    │ │  (HTML)  │ │ (API) │ │ (HTML) │ │ (HTML) │    │
+│  └────┬─────┘ └────┬─────┘ └──┬────┘ └───┬────┘ └───┬────┘    │
+│       └────────────┴──────────┴──────────┴──────────┘         │
 │                              │                                │
 │                   ┌──────────▼──────────┐                     │
 │                   │   Inference Layer   │                     │
@@ -59,8 +59,8 @@ It was built as a data engineering solution to answer the question:
                                │  SQLAlchemy ORM
                                ▼
 ┌───────────────────────────────────────────────────────────────┐
-│              PostgreSQL  (Render Managed DB)                   │
-│                    table: job_postings                         │
+│              PostgreSQL  (Render Managed DB)                  │
+│                    table: job_postings                        │
 └───────────────────────────┬───────────────────────────────────┘
                             │
                             ▼
