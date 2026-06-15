@@ -1,0 +1,48 @@
+name: Daily Scraper
+
+on:
+  schedule:
+    - cron: '0 2 * * *' # Runs at 02:00 AM UTC every day
+  workflow_dispatch: # Allows manual trigger from the GitHub Actions UI!
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r scraper/requirements.txt
+      
+      - name: Install Playwright Browsers
+        run: |
+          playwright install chromium
+          playwright install-deps
+
+      - name: Run Scraper
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          FREELANCER_KEYWORDS: ${{ vars.FREELANCER_KEYWORDS || 'developer,data,marketing,design' }}
+          FREELANCER_LIMIT: ${{ vars.FREELANCER_LIMIT || '10' }}
+          LINKEDIN_KEYWORD: ${{ vars.LINKEDIN_KEYWORD || 'engineer' }}
+          LINKEDIN_LOCATIONS: ${{ vars.LINKEDIN_LOCATIONS || 'Netherlands,Germany,France' }}
+          EURES_KEYWORDS: ${{ vars.EURES_KEYWORDS || 'developer,data scientist,marketing,designer,engineer' }}
+          EURES_RESULTS_PER_PAGE: ${{ vars.EURES_RESULTS_PER_PAGE || '10' }}
+          INDEED_QUERY: ${{ vars.INDEED_QUERY || 'developer' }}
+          INDEED_COUNTRIES: ${{ vars.INDEED_COUNTRIES || 'nl:Netherlands,de:Germany,fr:France' }}
+          INDEED_MAX_PER_COUNTRY: ${{ vars.INDEED_MAX_PER_COUNTRY || '10' }}
+          KAGGLE_MAX_PARQUET_FILES: ${{ vars.KAGGLE_MAX_PARQUET_FILES || '5' }}
+          KAGGLE_DAYS_BACK: ${{ vars.KAGGLE_DAYS_BACK || '14' }}
+          KAGGLE_FALLBACK_ROWS: ${{ vars.KAGGLE_FALLBACK_ROWS || '200' }}
+        run: |
+          python scraper/main.py
