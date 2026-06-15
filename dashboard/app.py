@@ -49,7 +49,9 @@ def load_data():
         df = pd.read_sql(query, engine)
         return df
     except Exception as e:
-        st.error(f"Error loading data: {e}")
+        # If the table doesn't exist yet, just return empty gracefully instead of showing a scary red error
+        if "does not exist" not in str(e):
+            st.error(f"Error loading data: {e}")
         return pd.DataFrame()
 
 with st.spinner("Fetching latest job data..."):
