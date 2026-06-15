@@ -47,6 +47,28 @@ def infer_job_function(title):
         return 'finance'
     return 'other'
 
+def infer_role_category(title):
+    if not title:
+        return 'other'
+    title_lower = title.lower()
+    if any(word in title_lower for word in ['developer', 'engineer', 'programmer', 'frontend', 'backend', 'fullstack', 'software', 'devops', 'infrastructure', 'cloud', 'développeur', 'ingénieur', 'entwickler', 'it', 'system', 'network', 'security', 'administrator']):
+        return 'engineering'
+    if any(word in title_lower for word in ['data', 'analytics', 'machine learning', 'ai', 'statistic', 'scientist', 'analyst', 'bi', 'intelligence', 'données', 'daten']):
+        return 'data_ai'
+    if any(word in title_lower for word in ['design', 'ux', 'ui', 'creative', 'art', 'concepteur', 'designer', 'visual', 'graphic', 'multimedia']):
+        return 'creative'
+    if any(word in title_lower for word in ['marketing', 'seo', 'content', 'growth', 'sales', 'vente', 'vertrieb', 'social media', 'brand', 'advertising', 'pr']):
+        return 'marketing'
+    if any(word in title_lower for word in ['finance', 'accountant', 'financial', 'comptable', 'buchhalter', 'audit', 'controller', 'bank', 'investment']):
+        return 'finance'
+    if any(word in title_lower for word in ['operations', 'ops', 'supply', 'logistics', 'admin', 'opération', 'betrieb', 'hr', 'human resources', 'recruiter', 'coordinate']):
+        return 'operations'
+    if any(word in title_lower for word in ['health', 'pharma', 'medical', 'clinical', 'care', 'santé', 'gesundheit', 'medizin', 'nurse', 'doctor', 'research', 'lab']):
+        return 'healthcare'
+    if any(word in title_lower for word in ['legal', 'law', 'attorney', 'lawyer', 'compliance', 'regulatory', 'paralegal']):
+        return 'legal'
+    return 'other'
+
 def infer_language(text):
     if not text:
         return None

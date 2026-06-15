@@ -6,15 +6,25 @@ from sqlalchemy import create_engine
 
 st.set_page_config(page_title="EU Job Market Dashboard", page_icon="🇪🇺", layout="wide")
 
-# Custom CSS for a more premium feel
+# Custom CSS for a flawless, light UI
 st.markdown("""
 <style>
-    /* Make metrics stand out slightly without hardcoding light/dark colors */
+    /* Clean metric cards */
     [data-testid="stMetric"] {
-        padding: 15px;
-        border-radius: 8px;
-        border: 1px solid rgba(128, 128, 128, 0.2);
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        background-color: #FFFFFF;
+        padding: 20px;
+        border-radius: 12px;
+        border: 1px solid #E2E8F0;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    [data-testid="stMetric"]:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.04);
+    }
+    /* Hide top padding for a cleaner look */
+    .block-container {
+        padding-top: 2rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -31,7 +41,8 @@ def init_connection():
 engine = init_connection()
 
 # Load data
-@st.cache_data(ttl=300)
+cache_ttl = int(os.getenv("DASHBOARD_CACHE_TTL", "300"))
+@st.cache_data(ttl=cache_ttl)
 def load_data():
     try:
         query = "SELECT * FROM job_postings"

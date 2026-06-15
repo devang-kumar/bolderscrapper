@@ -14,11 +14,30 @@ A data pipeline that harvests European job market data across all employment typ
 - **Dashboard**: Streamlit. Allows rapid development of data dashboards in Python with built-in filtering and charts capabilities.
 - **Orchestration**: Docker Compose for "works first time" deployment.
 
+## Hetzner Deployment Guide
+This project is fully containerized, making it extremely straightforward to deploy on a Hetzner Cloud VPS.
+
+1. **Provision a Server**: Spin up an Ubuntu 22.04 or 24.04 server on Hetzner Cloud (a CX22 or CPX21 instance is sufficient).
+2. **Install Docker**: SSH into the server and install Docker & Docker Compose:
+   ```bash
+   curl -fsSL https://get.docker.com -o get-docker.sh
+   sudo sh get-docker.sh
+   sudo apt install docker-compose-plugin
+   ```
+3. **Deploy**:
+   ```bash
+   git clone <your-private-repo-url>
+   cd boldersscraper
+   docker compose up --build -d
+   ```
+4. **Access**: The dashboard will be live at `http://<your-server-ip>:8501`. 
+*(Note: For a production environment, it is highly recommended to run this behind a reverse proxy like Caddy or Nginx with Let's Encrypt for HTTPS).*
+
 ## Data Source Rationale
-1. **Mock Kaggle Dataset**: Used as a fast, reliable source of historical job postings to ensure the dashboard populates instantly.
-2. **EURES**: The official EU portal, providing broad coverage across Europe using their public API.
-3. **Malt / Freelancer**: To capture freelance project budgets and rates.
-4. **LinkedIn / Indeed**: Captured via Playwright for real-time permanent/contract roles.
+1. **Kaggle (CSV Direct Download)**: Instead of using the Kaggle API which requires a persistent `kaggle.json` credential, the scraper natively pulls a public data-science job salary CSV to ingest historical baseline data.
+2. **EURES**: The official EU portal is scraped dynamically using Playwright, simulating human interaction to bypass their SPA structure and retrieve official cross-border roles.
+3. **Freelancer.com**: Scraped via their public active-projects API, dynamically cycling through tech/design keywords.
+4. **LinkedIn / Indeed / Malt**: Scraped using Playwright and Requests with headers to capture live contract and permanent roles across the Netherlands, Germany, and France.
 
 ## Schema Documentation
 - `id`: Primary key

@@ -4,6 +4,7 @@ playwright
 requests
 beautifulsoup4
 pandas
+pyarrow
 python-dotenv
 lxml
 langdetect
