@@ -44,5 +44,8 @@ jobs:
           KAGGLE_MAX_PARQUET_FILES: ${{ vars.KAGGLE_MAX_PARQUET_FILES || '5' }}
           KAGGLE_DAYS_BACK: ${{ vars.KAGGLE_DAYS_BACK || '14' }}
           KAGGLE_FALLBACK_ROWS: ${{ vars.KAGGLE_FALLBACK_ROWS || '200' }}
+          MALT_KEYWORDS: ${{ vars.MALT_KEYWORDS || 'developer,data scientist,designer,marketing' }}
+          MALT_MAX_PER_KEYWORD: ${{ vars.MALT_MAX_PER_KEYWORD || '10' }}
+          MALT_LOCATIONS: ${{ vars.MALT_LOCATIONS || 'netherlands,germany,france' }}
         run: |
           python scraper/main.py

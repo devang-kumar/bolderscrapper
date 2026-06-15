@@ -452,6 +452,74 @@ def scrape_kaggle(db):
     except Exception as e:
         print(f"Error scraping open-apply-jobs dataset: {e}")
 
+def scrape_malt(db):
+    print("Scraping Malt.com with Playwright...")
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            keywords_str = os.getenv("MALT_KEYWORDS", "developer,data scientist,designer,marketing")
+            keywords = [k.strip() for k in keywords_str.split(",") if k.strip()]
+            max_per_keyword = int(os.getenv("MALT_MAX_PER_KEYWORD", "10"))
+            locations_str = os.getenv("MALT_LOCATIONS", "netherlands,germany,france")
+            locations = [l.strip() for l in locations_str.split(",") if l.strip()]
+            jobs = []
+            for location in locations:
+                for keyword in keywords:
+                    print(f"Scraping Malt for '{keyword}' in '{location}'...")
+                    try:
+                        url = f"https://www.malt.com/s?q={requests.utils.quote(keyword)}&location={requests.utils.quote(location)}"
+                        page.goto(url, timeout=20000)
+                        page.wait_for_timeout(3000)
+                        # Try to find profile/mission cards
+                        cards = page.query_selector_all("[data-testid='freelancer-card'], .freelancer-card, .profile-card, article")
+                        count = 0
+                        for card in cards[:max_per_keyword]:
+                            try:
+                                # Extract name/title
+                                title_el = card.query_selector("h2, h3, [class*='title'], [class*='name']")
+                                title = title_el.inner_text().strip() if title_el else f"{keyword.capitalize()} Freelancer"
+
+                                # Extract daily rate
+                                rate_el = card.query_selector("[class*='rate'], [class*='price'], [class*='daily']")
+                                rate_raw = rate_el.inner_text().strip() if rate_el else None
+                                rate_type = "daily"
+
+                                # Extract skills
+                                skill_els = card.query_selector_all("[class*='skill'], [class*='tag'], [class*='badge']")
+                                skills = [s.inner_text().strip() for s in skill_els if s.inner_text().strip()][:10]
+
+                                # Extract location/country
+                                loc_el = card.query_selector("[class*='location'], [class*='city'], [class*='country']")
+                                country_text = loc_el.inner_text().strip() if loc_el else location
+                                country = COUNTRY_MAP.get(country_text.title(), location[:2].upper())
+
+                                jobs.append({
+                                    "source": "Malt",
+                                    "role_title": title,
+                                    "company_name": "Malt Freelancer",
+                                    "country": country,
+                                    "employment_type": "freelance",
+                                    "work_type": "remote",
+                                    "rate_raw": rate_raw,
+                                    "rate_type": rate_type,
+                                    "skills": skills,
+                                    "posted_date": datetime.now().date()
+                                })
+                                count += 1
+                            except Exception:
+                                continue
+                        print(f"  Found {count} profiles for '{keyword}' in '{location}'")
+                    except Exception as e:
+                        print(f"  Failed for '{keyword}' in '{location}': {e}")
+                    time.sleep(2)
+            browser.close()
+            save_jobs(db, jobs)
+            print(f"Saved {len(jobs)} jobs from Malt.")
+    except Exception as e:
+        print(f"Playwright error scraping Malt: {e}")
+
+
 if __name__ == "__main__":
     print("Starting scraper service...")
     db = SessionLocal()
@@ -461,6 +529,8 @@ if __name__ == "__main__":
     scrape_kaggle(db)
     scrape_eures(db)
     scrape_indeed(db)
+    scrape_malt(db)
     
     print("Scraping complete.")
     db.close()
+
