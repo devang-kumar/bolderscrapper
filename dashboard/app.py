@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import os
+import google.generativeai as genai
 from sqlalchemy import create_engine
 from collections import Counter
 
@@ -141,7 +142,7 @@ kpi5.metric("Jobs with Language Req.", f"{lang_req_pct:.1f}%")
 st.markdown("---")
 
 # --- DASHBOARD TABS ---
-tab1, tab2, tab3, tab4 = st.tabs(["Market Overview", "Rate Analysis", "Language & Skills", "Raw Data"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Market Overview", "Rate Analysis", "Language & Skills", "Raw Data", "Chatbot"])
 
 with tab1:
     col1, col2 = st.columns(2)
@@ -311,3 +312,51 @@ with tab4:
         file_name="eu_job_market_export.csv",
         mime="text/csv",
     )
+
+with tab5:
+    st.subheader("🤖 Chat with Job Market Data")
+    st.markdown("Ask questions about the scraped job listings. The chatbot strictly uses the filtered dataset available in the dashboard.")
+
+    gemini_api_key = os.getenv("GEMINI_API_KEY")
+    if not gemini_api_key:
+        st.warning("⚠️ GEMINI_API_KEY is not set. Please add it to your environment variables or `.env` file to use the chatbot.")
+    else:
+        genai.configure(api_key=gemini_api_key)
+        
+        if "messages" not in st.session_state:
+            st.session_state.messages = []
+
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+
+        if prompt := st.chat_input("Ask a question about the jobs or companies..."):
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.markdown(prompt)
+
+            with st.chat_message("assistant"):
+                with st.spinner("Analyzing data..."):
+                    try:
+                        # Limit to top 200 rows to avoid token limit issues
+                        context_df = export_df.head(200).copy()
+                        context_csv = context_df.to_csv(index=False)
+                        
+                        system_instruction = (
+                            "You are an expert job market analyst. Your task is to answer the user's questions "
+                            "STRICTLY using the provided dataset of job postings. Do not use outside knowledge. "
+                            "If the answer is not in the data, state that clearly.\n\n"
+                            f"Dataset Context:\n{context_csv}"
+                        )
+                        
+                        model = genai.GenerativeModel(
+                            model_name="gemini-1.5-flash",
+                            system_instruction=system_instruction
+                        )
+                        
+                        response = model.generate_content(prompt)
+                        st.markdown(response.text)
+                        
+                        st.session_state.messages.append({"role": "assistant", "content": response.text})
+                    except Exception as e:
+                        st.error(f"Error communicating with Gemini: {e}")

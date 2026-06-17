@@ -19,6 +19,7 @@ def save_jobs(db, jobs_data):
         job = JobPosting(
             source=data["source"],
             role_title=title,
+            company_name=company,
             role_category=infer_role_category(title),
             job_function=infer_job_function(title),
             industry=infer_industry(company, title),

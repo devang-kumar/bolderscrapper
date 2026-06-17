@@ -16,6 +16,7 @@ class JobPosting(Base):
     id = Column(Integer, primary_key=True, index=True)
     source = Column(String(255), nullable=False)
     role_title = Column(String(255), nullable=False)
+    company_name = Column(String(255))
     role_category = Column(String(255))
     job_function = Column(String(255))
     industry = Column(String(255))
