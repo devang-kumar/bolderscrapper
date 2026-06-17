@@ -310,6 +310,17 @@ with tab4:
         if col in export_df.columns:
             export_df[col] = export_df[col].dt.date
 
+    # Reorder columns to put company_name right after id
+    cols = export_df.columns.tolist()
+    if "company_name" in cols:
+        cols.remove("company_name")
+        if "id" in cols:
+            idx = cols.index("id") + 1
+            cols.insert(idx, "company_name")
+        else:
+            cols.insert(0, "company_name")
+        export_df = export_df[cols]
+
     # Show the clean dataframe in the UI
     st.dataframe(export_df, use_container_width=True)
 
@@ -359,7 +370,7 @@ with tab5:
                         )
                         
                         model = genai.GenerativeModel(
-                            model_name="gemini-1.5-flash-latest",
+                            model_name="gemini-pro",
                             system_instruction=system_instruction
                         )
                         
