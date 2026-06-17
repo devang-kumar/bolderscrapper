@@ -40,6 +40,15 @@ def init_connection():
 
 engine = init_connection()
 
+# Auto-migrate: Add company_name column if it doesn't exist
+try:
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        conn.execute(text("ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS company_name VARCHAR(255);"))
+        conn.commit()
+except Exception as e:
+    pass
+
 # Load data
 cache_ttl = int(os.getenv("DASHBOARD_CACHE_TTL", "300"))
 @st.cache_data(ttl=cache_ttl)
@@ -350,7 +359,7 @@ with tab5:
                         )
                         
                         model = genai.GenerativeModel(
-                            model_name="gemini-1.5-flash",
+                            model_name="gemini-1.5-flash-latest",
                             system_instruction=system_instruction
                         )
                         
