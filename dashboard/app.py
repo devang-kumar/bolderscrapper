@@ -370,7 +370,7 @@ with tab5:
                         )
                         
                         model = genai.GenerativeModel(
-                            model_name="gemini-pro",
+                            model_name="gemini-flash-latest",
                             system_instruction=system_instruction
                         )
                         
