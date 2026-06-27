@@ -646,16 +646,14 @@ with tab5:
                         if 'rate_normalized_eur_day' in export_df.columns:
                             summary_stats += f"Avg Rate: €{export_df['rate_normalized_eur_day'].mean():.2f}/day\n"
 
-                        context_df = export_df.head(100).copy()
-                        context_csv = context_df.to_csv(index=False)
-                        
-                        system_instruction = (
+                        context_prefix = (
                             "You are an elite Job Market Intelligence AI. Your task is to analyze the provided European Job Market data.\n"
                             "Think critically step-by-step and provide rich, structured, and insightful answers.\n"
                             "Use the provided Summary Statistics to answer broad queries, and use the Data Sample for specific examples.\n"
                             "If the answer is not in the data, explicitly state that.\n\n"
                             f"--- Summary Statistics of Full Dataset ---\n{summary_stats}\n\n"
-                            f"--- Data Sample (First 100 rows) ---\n{context_csv}"
+                            f"--- Data Sample (First 100 rows) ---\n{context_csv}\n\n"
+                            f"--- User Question ---\n{prompt}"
                         )
                         
                         # Auto-discover available models to prevent 404 errors
@@ -675,12 +673,9 @@ with tab5:
                             elif "pro" in m_name and "1.5" in m_name:
                                 target_model_name = m_name
 
-                        model = genai.GenerativeModel(
-                            model_name=target_model_name,
-                            system_instruction=system_instruction
-                        )
+                        model = genai.GenerativeModel(model_name=target_model_name)
                         
-                        response = model.generate_content(prompt)
+                        response = model.generate_content(context_prefix)
                         st.markdown(response.text)
                         
                         st.session_state.messages.append({"role": "assistant", "content": response.text})
