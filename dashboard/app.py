@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import os
-import google.generativeai as genai
+from groq import Groq
 from sqlalchemy import create_engine
 from collections import Counter
 
@@ -609,20 +609,17 @@ with tab5:
     </div>
     """, unsafe_allow_html=True)
 
-    gemini_api_key = os.getenv("GEMINI_API_KEY")
-    if not gemini_api_key:
-        st.warning("⚠️ GEMINI_API_KEY is not set. Please add it to your environment variables or `.env` file to use the chatbot.")
+    groq_api_key = os.getenv("GROQ_API_KEY")
+    if not groq_api_key:
+        st.warning("⚠️ GROQ_API_KEY is not set. Please add it to your environment variables or `.env` file to use the chatbot. Get a free key at https://console.groq.com")
     else:
-        genai.configure(api_key=gemini_api_key)
+        groq_client = Groq(api_key=groq_api_key)
 
         if "messages" not in st.session_state or len(st.session_state.messages) == 0:
             st.session_state.messages = [{
                 "role": "assistant",
-                "content": "👋 Hello! I'm your EU Job Market AI Analyst. I have access to the current filtered dataset — ask me about trends, salaries, top companies, or anything you're curious about!"
+                "content": "👋 Hello! I'm your EU Job Market AI Analyst powered by Groq. I have access to the current filtered dataset — ask me about trends, salaries, top companies, or anything you're curious about!"
             }]
-        
-        if "messages" not in st.session_state:
-            st.session_state.messages = []
 
         for message in st.session_state.messages:
             with st.chat_message(message["role"]):
@@ -636,7 +633,6 @@ with tab5:
             with st.chat_message("assistant"):
                 with st.spinner("Analyzing data..."):
                     try:
-                        # Enhance the prompt with full dataset summary context
                         summary_stats = (
                             f"Total Jobs: {len(export_df)}\n"
                             f"Top Countries: {export_df['country'].value_counts().head(5).to_dict()}\n"
@@ -649,38 +645,27 @@ with tab5:
                         context_df = export_df.head(100).copy()
                         context_csv = context_df.to_csv(index=False)
 
-                        context_prefix = (
-                            "You are an elite Job Market Intelligence AI. Your task is to analyze the provided European Job Market data.\n"
-                            "Think critically step-by-step and provide rich, structured, and insightful answers.\n"
-                            "Use the provided Summary Statistics to answer broad queries, and use the Data Sample for specific examples.\n"
+                        system_prompt = (
+                            "You are an elite Job Market Intelligence AI. Analyze the European Job Market data provided below.\n"
+                            "Think critically and provide rich, structured, and insightful answers in markdown format.\n"
+                            "Use the Summary Statistics for broad queries and the Data Sample for specific examples.\n"
                             "If the answer is not in the data, explicitly state that.\n\n"
-                            f"--- Summary Statistics of Full Dataset ---\n{summary_stats}\n\n"
-                            f"--- Data Sample (First 100 rows) ---\n{context_csv}\n\n"
-                            f"--- User Question ---\n{prompt}"
+                            f"--- Summary Statistics ---\n{summary_stats}\n\n"
+                            f"--- Data Sample (First 100 rows) ---\n{context_csv}"
                         )
-                        
-                        # Auto-discover available models to prevent 404 errors
-                        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                        if not available_models:
-                            st.error("No Gemini models supporting generateContent found for this API key.")
-                            st.stop()
-                            
-                        # Prefer flash or pro models if available
-                        target_model_name = available_models[0]
-                        for m_name in available_models:
-                            if "1.5-flash" in m_name:
-                                target_model_name = m_name
-                                break
-                            elif "flash" in m_name:
-                                target_model_name = m_name
-                            elif "pro" in m_name and "1.5" in m_name:
-                                target_model_name = m_name
 
-                        model = genai.GenerativeModel(model_name=target_model_name)
-                        
-                        response = model.generate_content(context_prefix)
-                        st.markdown(response.text)
-                        
-                        st.session_state.messages.append({"role": "assistant", "content": response.text})
+                        chat_completion = groq_client.chat.completions.create(
+                            model="llama-3.3-70b-versatile",
+                            messages=[
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": prompt}
+                            ],
+                            temperature=0.5,
+                            max_tokens=1024,
+                        )
+
+                        reply = chat_completion.choices[0].message.content
+                        st.markdown(reply)
+                        st.session_state.messages.append({"role": "assistant", "content": reply})
                     except Exception as e:
-                        st.error(f"Error communicating with Gemini: {e}")
+                        st.error(f"Error communicating with Groq: {e}")
