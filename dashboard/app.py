@@ -6,31 +6,251 @@ import google.generativeai as genai
 from sqlalchemy import create_engine
 from collections import Counter
 
-st.set_page_config(page_title="EU Job Market Dashboard", layout="wide")
+st.set_page_config(page_title="EU Job Market Dashboard", layout="wide", page_icon="🌍")
 
-# Custom CSS for a flawless, light UI
+# ─── Premium CSS ────────────────────────────────────────────────────
 st.markdown("""
 <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+    html, body, [class*="css"], .stApp { font-family: 'Inter', sans-serif !important; }
+
+    /* === ANIMATED GRADIENT BACKGROUND === */
+    .stApp {
+        background: linear-gradient(-45deg, #e0ecff, #f5f7fa, #dce8f7, #e8e0ff);
+        background-size: 400% 400%;
+        animation: gradientBG 15s ease infinite;
+    }
+    @keyframes gradientBG {
+        0%   { background-position: 0% 50%; }
+        50%  { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+    }
+
+    /* === HERO BANNER === */
+    .hero-banner {
+        background: linear-gradient(135deg, #1a365d 0%, #2b5876 50%, #4e4376 100%);
+        border-radius: 20px;
+        padding: 40px 48px;
+        margin-bottom: 32px;
+        box-shadow: 0 20px 60px rgba(43, 88, 118, 0.35);
+        position: relative;
+        overflow: hidden;
+    }
+    .hero-banner::before {
+        content: '';
+        position: absolute;
+        top: -50%; right: -50%;
+        width: 200%; height: 200%;
+        background: radial-gradient(circle, rgba(255,255,255,0.06) 0%, transparent 60%);
+        animation: shimmer 8s linear infinite;
+    }
+    @keyframes shimmer {
+        0%   { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+    .hero-title {
+        font-size: 2.4rem;
+        font-weight: 800;
+        color: white;
+        margin: 0 0 8px 0;
+        letter-spacing: -0.5px;
+        text-shadow: 0 2px 12px rgba(0,0,0,0.2);
+    }
+    .hero-subtitle {
+        font-size: 1.05rem;
+        color: rgba(255,255,255,0.82);
+        margin: 0;
+        font-weight: 400;
+        letter-spacing: 0.2px;
+    }
+    .hero-badge {
+        display: inline-block;
+        background: rgba(255,255,255,0.15);
+        border: 1px solid rgba(255,255,255,0.3);
+        border-radius: 20px;
+        padding: 4px 14px;
+        font-size: 0.75rem;
+        color: rgba(255,255,255,0.9);
+        font-weight: 600;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+        margin-bottom: 14px;
+    }
+
+    /* === GLASSMORPHIC KPI CARDS === */
     [data-testid="stMetric"] {
-        background-color: #FFFFFF;
-        padding: 20px;
-        border-radius: 12px;
-        border: 1px solid #E2E8F0;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        background: rgba(255, 255, 255, 0.65);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        padding: 22px 20px;
+        border-radius: 18px;
+        border: 1px solid rgba(255, 255, 255, 0.6);
+        box-shadow: 0 8px 32px rgba(43, 88, 118, 0.08);
+        transition: all 0.35s cubic-bezier(0.25, 0.8, 0.25, 1);
     }
     [data-testid="stMetric"]:hover {
+        transform: translateY(-6px) scale(1.03);
+        box-shadow: 0 18px 48px rgba(43, 88, 118, 0.18);
+        border: 1px solid rgba(255, 255, 255, 0.9);
+    }
+    [data-testid="stMetricLabel"] {
+        font-weight: 600;
+        color: #64748b;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    [data-testid="stMetricValue"] {
+        font-weight: 800;
+        font-size: 1.7rem !important;
+        background: linear-gradient(135deg, #1a365d, #4e4376);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+
+    /* === TABS === */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 6px;
+        background: rgba(255, 255, 255, 0.45);
+        backdrop-filter: blur(10px);
+        padding: 8px;
+        border-radius: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.4);
+        box-shadow: inset 0 1px 4px rgba(0,0,0,0.04);
+    }
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 10px;
+        padding: 10px 20px;
+        font-weight: 600;
+        font-size: 0.88rem;
+        color: #64748b;
+        transition: all 0.25s ease;
+        border: 1px solid transparent;
+    }
+    .stTabs [data-baseweb="tab"]:hover {
+        background: rgba(255,255,255,0.6);
+        color: #2b5876;
+    }
+    .stTabs [aria-selected="true"] {
+        background: #FFFFFF !important;
+        box-shadow: 0 4px 16px rgba(43,88,118,0.12) !important;
+        color: #1a365d !important;
+        border: 1px solid rgba(43,88,118,0.08) !important;
+    }
+
+    /* === SIDEBAR === */
+    [data-testid="stSidebar"] {
+        background: rgba(255, 255, 255, 0.82) !important;
+        backdrop-filter: blur(24px);
+        border-right: 1px solid rgba(255,255,255,0.6);
+    }
+    .sidebar-logo {
+        font-size: 1.4rem;
+        font-weight: 800;
+        background: linear-gradient(135deg, #1a365d, #4e4376);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        margin-bottom: 4px;
+    }
+    .sidebar-tagline {
+        font-size: 0.75rem;
+        color: #94a3b8;
+        font-weight: 500;
+        margin-bottom: 20px;
+    }
+
+    /* === CHATBOT === */
+    .stChatMessage {
+        border-radius: 16px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+        background: rgba(255, 255, 255, 0.85) !important;
+        border: 1px solid rgba(43, 88, 118, 0.15);
+        backdrop-filter: blur(12px);
+        margin-bottom: 16px;
+        padding: 16px;
+        animation: slideUp 0.4s ease-out forwards;
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    @keyframes slideUp {
+        to { opacity: 1; transform: translateY(0); }
+    }
+    /* Differentiating assistant and user is partly handled by default Streamlit classes */
+    .chat-welcome-card {
+        background: linear-gradient(135deg, rgba(26,54,93,0.07), rgba(78,67,118,0.07));
+        border: 1px solid rgba(43,88,118,0.12);
+        border-radius: 16px;
+        padding: 20px 24px;
+        margin-bottom: 20px;
+    }
+    .chat-welcome-card h3 { margin: 0 0 8px 0; color: #1a365d; font-size: 1.1rem; }
+    .chat-welcome-card p  { margin: 0; color: #64748b; font-size: 0.9rem; }
+    .chat-suggestion {
+        display: inline-block;
+        background: rgba(255,255,255,0.8);
+        border: 1px solid rgba(43,88,118,0.15);
+        border-radius: 20px;
+        padding: 5px 14px;
+        font-size: 0.82rem;
+        color: #2b5876;
+        font-weight: 500;
+        margin: 4px 4px 0 0;
+        cursor: pointer;
+    }
+
+    /* === DATAFRAME === */
+    .stDataFrame {
+        border-radius: 14px;
+        overflow: hidden;
+        border: 1px solid rgba(43,88,118,0.1);
+        box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+    }
+
+    /* === DOWNLOAD BUTTON === */
+    .stDownloadButton > button {
+        background: linear-gradient(135deg, #1a365d, #2b5876);
+        color: white;
+        border-radius: 12px;
+        font-weight: 600;
+        border: none;
+        padding: 12px 28px;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(43,88,118,0.3);
+    }
+    .stDownloadButton > button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.04);
+        box-shadow: 0 8px 25px rgba(43,88,118,0.4);
     }
-    .block-container {
-        padding-top: 2rem;
+
+    /* === DIVIDER === */
+    hr { border-color: rgba(43,88,118,0.1) !important; }
+
+    /* === FOOTER === */
+    .dashboard-footer {
+        text-align: center;
+        padding: 24px;
+        color: #94a3b8;
+        font-size: 0.8rem;
+        font-weight: 500;
+        border-top: 1px solid rgba(43,88,118,0.08);
+        margin-top: 48px;
     }
+
+    .block-container { padding-top: 1.5rem; }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("EU Job Market Dashboard")
-st.markdown("### Interactive Insights into the European Job Market")
+# ─── Hero Banner ─────────────────────────────────────────────────────
+st.markdown("""
+<div class="hero-banner">
+    <div class="hero-badge">🌍 Live Data &nbsp;|&nbsp; EU Job Market</div>
+    <h1 class="hero-title">EU Job Market Intelligence</h1>
+    <p class="hero-subtitle">Real-time insights scraped from LinkedIn, Indeed, EURES, Freelancer & more &mdash; all in one place.</p>
+</div>
+""", unsafe_allow_html=True)
 
 # Database connection
 @st.cache_resource
@@ -56,6 +276,8 @@ def load_data():
     try:
         query = "SELECT * FROM job_postings"
         df = pd.read_sql(query, engine)
+        if 'company_name' in df.columns:
+            df['company_name'] = df['company_name'].replace(["None", "none", "", "null", "Null", "NULL"], pd.NA).fillna("Unknown")
         return df
     except Exception as e:
         if "does not exist" not in str(e):
@@ -75,7 +297,9 @@ for col in ["posted_date", "scraped_date"]:
         df[col] = pd.to_datetime(df[col], errors="coerce")
 
 # --- SIDEBAR FILTERS ---
-st.sidebar.header("Filters")
+st.sidebar.markdown('<div class="sidebar-logo">🌍 EUJobs</div><div class="sidebar-tagline">Powered by live scrapers</div>', unsafe_allow_html=True)
+st.sidebar.markdown("---")
+st.sidebar.header("🔎 Filters")
 
 def multiselect_filter(col_name, title):
     unique_vals = sorted(df[col_name].dropna().unique().tolist())
@@ -151,34 +375,70 @@ kpi5.metric("Jobs with Language Req.", f"{lang_req_pct:.1f}%")
 st.markdown("---")
 
 # --- DASHBOARD TABS ---
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["Market Overview", "Rate Analysis", "Language & Skills", "Raw Data", "Chatbot"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["🌐 Market Overview", "💰 Rate Analysis", "🗣️ Language & Skills", "📋 Raw Data", "🤖 AI Analyst"])
 
 with tab1:
     col1, col2 = st.columns(2)
     with col1:
         fig_country = px.histogram(
             filtered_df, x="country", color="source",
-            title="Job Demand by Country", template="plotly_white"
+            title="Job Demand by Country", template="plotly_white",
+            color_discrete_sequence=px.colors.qualitative.Pastel
         )
         fig_country.update_layout(xaxis_title="Country", yaxis_title="Number of Jobs", hovermode="x unified")
-        st.plotly_chart(fig_country, use_container_width=True)
+        st.plotly_chart(fig_country, use_container_width=True, config={"displayModeBar": True, "scrollZoom": True})
 
     with col2:
         fig_ind = px.histogram(
             filtered_df, y="industry", color="job_function",
-            title="Jobs by Industry & Function", orientation="h", template="plotly_white"
+            title="Jobs by Industry & Function", orientation="h", template="plotly_white",
+            color_discrete_sequence=px.colors.qualitative.Pastel
         )
-        fig_ind.update_layout(yaxis_title="Industry", xaxis_title="Number of Jobs")
-        st.plotly_chart(fig_ind, use_container_width=True)
+        fig_ind.update_layout(yaxis_title="Industry", xaxis_title="Number of Jobs", hovermode="y unified")
+        st.plotly_chart(fig_ind, use_container_width=True, config={"displayModeBar": True, "scrollZoom": True})
 
     col3, col4 = st.columns(2)
     with col3:
-        fig_emp = px.pie(filtered_df, names="employment_type", title="Employment Type Breakdown", hole=0.4, template="plotly_white")
-        st.plotly_chart(fig_emp, use_container_width=True)
+        fig_emp = px.pie(
+            filtered_df, names="employment_type", title="Employment Type Breakdown", 
+            hole=0.4, template="plotly_white", color_discrete_sequence=px.colors.qualitative.Pastel
+        )
+        fig_emp.update_traces(textposition='inside', textinfo='percent+label', hovertemplate="%{label}: %{value} (%{percent})")
+        st.plotly_chart(fig_emp, use_container_width=True, config={"displayModeBar": True, "scrollZoom": True})
 
     with col4:
-        fig_work = px.pie(filtered_df, names="work_type", title="Work Type Breakdown", hole=0.4, template="plotly_white")
-        st.plotly_chart(fig_work, use_container_width=True)
+        fig_work = px.pie(
+            filtered_df, names="work_type", title="Work Type Breakdown", 
+            hole=0.4, template="plotly_white", color_discrete_sequence=px.colors.qualitative.Pastel
+        )
+        fig_work.update_traces(textposition='inside', textinfo='percent+label', hovertemplate="%{label}: %{value} (%{percent})")
+        st.plotly_chart(fig_work, use_container_width=True, config={"displayModeBar": True, "scrollZoom": True})
+
+    # Top Companies chart
+    if "company_name" in filtered_df.columns:
+        top_companies = (
+            filtered_df["company_name"]
+            .replace("Unknown", pd.NA)
+            .dropna()
+            .value_counts()
+            .head(10)
+            .reset_index()
+        )
+        top_companies.columns = ["company", "count"]
+        if not top_companies.empty:
+            fig_companies = px.bar(
+                top_companies, x="count", y="company", orientation="h",
+                title="🏢 Top Hiring Companies",
+                template="plotly_white",
+                color="count",
+                color_continuous_scale="Blues"
+            )
+            fig_companies.update_traces(hovertemplate="<b>%{y}</b><br>Jobs Posted: %{x}<extra></extra>")
+            fig_companies.update_layout(
+                yaxis_title="Company", xaxis_title="Number of Jobs",
+                coloraxis_showscale=False, height=380
+            )
+            st.plotly_chart(fig_companies, use_container_width=True, config={"displayModeBar": True, "scrollZoom": True})
 
     # Time-series: jobs posted over time
     if "posted_date" in filtered_df.columns:
@@ -193,10 +453,11 @@ with tab1:
             fig_ts = px.area(
                 ts_df, x="date", y="count",
                 title="Jobs Posted Over Time", template="plotly_white",
-                color_discrete_sequence=["#4F8BF9"]
+                color_discrete_sequence=["#2b5876"]
             )
-            fig_ts.update_layout(xaxis_title="Date", yaxis_title="Jobs Posted")
-            st.plotly_chart(fig_ts, use_container_width=True)
+            fig_ts.update_traces(mode="lines+markers", hovertemplate="<b>Date</b>: %{x}<br><b>Jobs</b>: %{y}<extra></extra>")
+            fig_ts.update_layout(xaxis_title="Date", yaxis_title="Jobs Posted", hovermode="x unified")
+            st.plotly_chart(fig_ts, use_container_width=True, config={"displayModeBar": True, "scrollZoom": True})
 
 with tab2:
     if not valid_rates.empty:
@@ -206,19 +467,19 @@ with tab2:
                 valid_rates,
                 x="seniority_level", y="rate_normalized_eur_day", color="role_category",
                 title="Daily Rates by Seniority & Role Category (EUR/day)",
-                template="plotly_white"
+                template="plotly_white", color_discrete_sequence=px.colors.qualitative.Pastel
             )
-            fig_rate.update_layout(xaxis_title="Seniority Level", yaxis_title="EUR / Day")
-            st.plotly_chart(fig_rate, use_container_width=True)
+            fig_rate.update_layout(xaxis_title="Seniority Level", yaxis_title="EUR / Day", hovermode="x unified")
+            st.plotly_chart(fig_rate, use_container_width=True, config={"displayModeBar": True, "scrollZoom": True})
 
         with col6:
             fig_rate_hist = px.histogram(
                 valid_rates, x="rate_normalized_eur_day", nbins=20,
                 title="Distribution of Daily Rates (EUR/day)",
-                template="plotly_white", color_discrete_sequence=["#4F8BF9"]
+                template="plotly_white", color_discrete_sequence=["#2b5876"]
             )
             fig_rate_hist.update_layout(xaxis_title="EUR / Day", yaxis_title="Count")
-            st.plotly_chart(fig_rate_hist, use_container_width=True)
+            st.plotly_chart(fig_rate_hist, use_container_width=True, config={"displayModeBar": True, "scrollZoom": True})
 
         rate_by_cat = (
             valid_rates.groupby("role_category")["rate_normalized_eur_day"]
@@ -228,10 +489,12 @@ with tab2:
         fig_cat_rate = px.bar(
             rate_by_cat, x="role_category", y="rate_normalized_eur_day",
             title="Average Daily Rate by Role Category (EUR/day)",
-            template="plotly_white", color="role_category"
+            template="plotly_white", color="role_category",
+            color_discrete_sequence=px.colors.qualitative.Pastel
         )
+        fig_cat_rate.update_traces(hovertemplate="<b>%{x}</b><br>Avg Rate: €%{y:.2f}<extra></extra>")
         fig_cat_rate.update_layout(showlegend=False, xaxis_title="Role Category", yaxis_title="Avg EUR / Day")
-        st.plotly_chart(fig_cat_rate, use_container_width=True)
+        st.plotly_chart(fig_cat_rate, use_container_width=True, config={"displayModeBar": True, "scrollZoom": True})
 
         st.info(
             "Note: Rate data is only available for sources that publicly disclose salary/rate information "
@@ -254,7 +517,7 @@ with tab3:
             hole=0.45, template="plotly_white",
             color_discrete_map={"Language Required": "#4F8BF9", "No Requirement": "#CBD5E1"}
         )
-        st.plotly_chart(fig_lang_pct, use_container_width=True)
+        st.plotly_chart(fig_lang_pct, use_container_width=True, config={"displayModeBar": True, "scrollZoom": True})
 
     with col8:
         lang_counts = (
@@ -269,7 +532,7 @@ with tab3:
                 color_discrete_sequence=["#4F8BF9"]
             )
             fig_lang_bar.update_layout(yaxis_title="Language", xaxis_title="Number of Jobs")
-            st.plotly_chart(fig_lang_bar, use_container_width=True)
+            st.plotly_chart(fig_lang_bar, use_container_width=True, config={"displayModeBar": True, "scrollZoom": True})
         else:
             st.info("No explicit language requirements in this selection.")
 
@@ -289,7 +552,7 @@ with tab3:
             color_discrete_sequence=["#4F8BF9"]
         )
         fig_skills.update_layout(yaxis_title="Skill", xaxis_title="Frequency", height=500)
-        st.plotly_chart(fig_skills, use_container_width=True)
+        st.plotly_chart(fig_skills, use_container_width=True, config={"displayModeBar": True, "scrollZoom": True})
     else:
         st.info("No skills data available for the current selection.")
 
@@ -334,14 +597,29 @@ with tab4:
     )
 
 with tab5:
-    st.subheader("🤖 Chat with Job Market Data")
-    st.markdown("Ask questions about the scraped job listings. The chatbot strictly uses the filtered dataset available in the dashboard.")
+    st.markdown("""
+    <div class="chat-welcome-card">
+        <h3>🤖 EU Job Market AI Analyst</h3>
+        <p>Ask anything about the scraped job data — trends, salaries, top companies, in-demand skills, and more. The AI uses your current filter context.</p>
+        <br/>
+        <span class="chat-suggestion">💡 What are the top paying industries?</span>
+        <span class="chat-suggestion">💡 Which country has the most remote jobs?</span>
+        <span class="chat-suggestion">💡 What skills are most in demand?</span>
+        <span class="chat-suggestion">💡 Show me average rates by seniority</span>
+    </div>
+    """, unsafe_allow_html=True)
 
     gemini_api_key = os.getenv("GEMINI_API_KEY")
     if not gemini_api_key:
         st.warning("⚠️ GEMINI_API_KEY is not set. Please add it to your environment variables or `.env` file to use the chatbot.")
     else:
         genai.configure(api_key=gemini_api_key)
+
+        if "messages" not in st.session_state or len(st.session_state.messages) == 0:
+            st.session_state.messages = [{
+                "role": "assistant",
+                "content": "👋 Hello! I'm your EU Job Market AI Analyst. I have access to the current filtered dataset — ask me about trends, salaries, top companies, or anything you're curious about!"
+            }]
         
         if "messages" not in st.session_state:
             st.session_state.messages = []
@@ -358,19 +636,30 @@ with tab5:
             with st.chat_message("assistant"):
                 with st.spinner("Analyzing data..."):
                     try:
-                        # Limit to top 200 rows to avoid token limit issues
-                        context_df = export_df.head(200).copy()
+                        # Enhance the prompt with full dataset summary context
+                        summary_stats = (
+                            f"Total Jobs: {len(export_df)}\n"
+                            f"Top Countries: {export_df['country'].value_counts().head(5).to_dict()}\n"
+                            f"Top Industries: {export_df['industry'].value_counts().head(5).to_dict()}\n"
+                            f"Top Roles: {export_df['role_category'].value_counts().head(5).to_dict()}\n"
+                        )
+                        if 'rate_normalized_eur_day' in export_df.columns:
+                            summary_stats += f"Avg Rate: €{export_df['rate_normalized_eur_day'].mean():.2f}/day\n"
+
+                        context_df = export_df.head(100).copy()
                         context_csv = context_df.to_csv(index=False)
                         
                         system_instruction = (
-                            "You are an expert job market analyst. Your task is to answer the user's questions "
-                            "STRICTLY using the provided dataset of job postings. Do not use outside knowledge. "
-                            "If the answer is not in the data, state that clearly.\n\n"
-                            f"Dataset Context:\n{context_csv}"
+                            "You are an elite Job Market Intelligence AI. Your task is to analyze the provided European Job Market data.\n"
+                            "Think critically step-by-step and provide rich, structured, and insightful answers.\n"
+                            "Use the provided Summary Statistics to answer broad queries, and use the Data Sample for specific examples.\n"
+                            "If the answer is not in the data, explicitly state that.\n\n"
+                            f"--- Summary Statistics of Full Dataset ---\n{summary_stats}\n\n"
+                            f"--- Data Sample (First 100 rows) ---\n{context_csv}"
                         )
                         
                         model = genai.GenerativeModel(
-                            model_name="gemini-flash-latest",
+                            model_name="gemini-1.5-pro-latest",
                             system_instruction=system_instruction
                         )
                         
