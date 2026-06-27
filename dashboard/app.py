@@ -658,8 +658,25 @@ with tab5:
                             f"--- Data Sample (First 100 rows) ---\n{context_csv}"
                         )
                         
+                        # Auto-discover available models to prevent 404 errors
+                        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                        if not available_models:
+                            st.error("No Gemini models supporting generateContent found for this API key.")
+                            st.stop()
+                            
+                        # Prefer flash or pro models if available
+                        target_model_name = available_models[0]
+                        for m_name in available_models:
+                            if "1.5-flash" in m_name:
+                                target_model_name = m_name
+                                break
+                            elif "flash" in m_name:
+                                target_model_name = m_name
+                            elif "pro" in m_name and "1.5" in m_name:
+                                target_model_name = m_name
+
                         model = genai.GenerativeModel(
-                            model_name="gemini-1.5-flash",
+                            model_name=target_model_name,
                             system_instruction=system_instruction
                         )
                         
