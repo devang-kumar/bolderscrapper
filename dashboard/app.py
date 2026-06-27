@@ -646,6 +646,9 @@ with tab5:
                         if 'rate_normalized_eur_day' in export_df.columns:
                             summary_stats += f"Avg Rate: €{export_df['rate_normalized_eur_day'].mean():.2f}/day\n"
 
+                        context_df = export_df.head(100).copy()
+                        context_csv = context_df.to_csv(index=False)
+
                         context_prefix = (
                             "You are an elite Job Market Intelligence AI. Your task is to analyze the provided European Job Market data.\n"
                             "Think critically step-by-step and provide rich, structured, and insightful answers.\n"
