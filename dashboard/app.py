@@ -659,7 +659,7 @@ with tab5:
                         )
                         
                         model = genai.GenerativeModel(
-                            model_name="gemini-1.5-pro-latest",
+                            model_name="gemini-1.5-pro",
                             system_instruction=system_instruction
                         )
                         
