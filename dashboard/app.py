@@ -265,6 +265,10 @@ try:
     from sqlalchemy import text
     with engine.connect() as conn:
         conn.execute(text("ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS company_name VARCHAR(255);"))
+        conn.execute(text("ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS source_job_id VARCHAR(255);"))
+        conn.execute(text("ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS job_url VARCHAR(1024);"))
+        conn.execute(text("ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS location_raw VARCHAR(255);"))
+        conn.execute(text("ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS description TEXT;"))
         conn.commit()
 except Exception as e:
     pass

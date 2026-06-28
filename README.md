@@ -144,7 +144,12 @@ It was built as a data engineering solution to answer the question:
 CREATE TABLE job_postings (
     id                     SERIAL PRIMARY KEY,
     source                 VARCHAR(255) NOT NULL,        -- Freelancer / LinkedIn / EURES / Indeed / Malt / Kaggle
+    source_job_id          VARCHAR(255),                 -- source-specific stable job id where available
+    job_url                VARCHAR(1024),                -- original listing URL
     role_title             VARCHAR(255) NOT NULL,
+    company_name           VARCHAR(255),
+    location_raw           VARCHAR(255),                 -- original location string before country normalization
+    description            TEXT,                         -- cleaned description/snippet where available
     role_category          VARCHAR(255),                 -- engineering / data_ai / creative / marketing / finance / operations / healthcare / legal / other
     job_function           VARCHAR(255),                 -- dev / data / design / marketing / ops / finance / other
     industry               VARCHAR(255),                 -- tech / finance / pharma / retail / logistics / other
@@ -265,13 +270,14 @@ You can also trigger it manually from the **Actions → Daily Scraper → Run wo
 | `DATABASE_URL` | PostgreSQL connection string | — |
 | `FREELANCER_KEYWORDS` | Comma-separated search terms | `developer,data,marketing,design` |
 | `FREELANCER_LIMIT` | Results per keyword | `10` |
-| `LINKEDIN_KEYWORD` | Job keyword for LinkedIn search | `engineer` |
+| `LINKEDIN_KEYWORD` | Comma-separated job keywords for LinkedIn search | `engineer` |
 | `LINKEDIN_LOCATIONS` | Comma-separated EU countries | `Netherlands,Germany,France` |
 | `EURES_KEYWORDS` | Comma-separated search terms | `developer,data scientist,...` |
 | `EURES_RESULTS_PER_PAGE` | Results per keyword | `10` |
 | `INDEED_QUERY` | Job query for Indeed | `developer` |
 | `INDEED_COUNTRIES` | `code:Name` pairs | `nl:Netherlands,...` |
 | `INDEED_MAX_PER_COUNTRY` | Max jobs per country | `10` |
+| `INDEED_DAYS_BACK` | Indeed posting age window in days | `14` |
 | `KAGGLE_MAX_PARQUET_FILES` | Parquet files to fetch | `5` |
 | `KAGGLE_DAYS_BACK` | Days of data to keep | `14` |
 | `KAGGLE_FALLBACK_ROWS` | Rows if no recent data | `200` |

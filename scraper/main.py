@@ -1,25 +1,90 @@
 import os
 import time
+import re
 import requests
 import pandas as pd
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
+from sqlalchemy import text, or_
 from models import SessionLocal, JobPosting, engine, Base
-from utils import infer_seniority, infer_industry, infer_job_function, infer_role_category, normalize_rate, infer_language
-from datetime import datetime, timedelta
+from utils import (
+    clean_job_record,
+    clean_text,
+    extract_rate_details,
+    infer_industry,
+    infer_job_function,
+    infer_language,
+    infer_rate_type,
+    infer_role_category,
+    infer_seniority,
+    normalize_country,
+    normalize_rate,
+    split_env_list,
+)
+from datetime import datetime
+from urllib.parse import quote_plus, urljoin, urlparse, parse_qs
 
 Base.metadata.create_all(bind=engine)
 
+def ensure_schema():
+    columns = {
+        "source_job_id": "VARCHAR(255)",
+        "job_url": "VARCHAR(1024)",
+        "location_raw": "VARCHAR(255)",
+        "description": "TEXT",
+    }
+    try:
+        with engine.begin() as conn:
+            for column, column_type in columns.items():
+                conn.execute(text(f"ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS {column} {column_type};"))
+    except Exception as e:
+        print(f"Schema migration skipped: {e}")
+
+ensure_schema()
+
 def save_jobs(db, jobs_data):
+    seen = set()
+    saved = 0
     for data in jobs_data:
+        data = clean_job_record(data)
         title = data.get("role_title", "")
         company = data.get("company_name", "")
         posted_date = data.get("posted_date") or datetime.now().date()
+        dedupe_key = (
+            data.get("source", "").lower(),
+            (data.get("source_job_id") or data.get("job_url") or "").lower(),
+            title.lower(),
+            company.lower(),
+            data.get("country", "").lower(),
+            posted_date.isoformat() if hasattr(posted_date, "isoformat") else str(posted_date),
+        )
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+
+        existing_filters = []
+        if data.get("source_job_id"):
+            existing_filters.append(JobPosting.source_job_id == data.get("source_job_id"))
+        if data.get("job_url"):
+            existing_filters.append(JobPosting.job_url == data.get("job_url"))
+        if existing_filters:
+            existing = (
+                db.query(JobPosting.id)
+                .filter(JobPosting.source == data.get("source"))
+                .filter(or_(*existing_filters))
+                .first()
+            )
+            if existing:
+                continue
 
         job = JobPosting(
             source=data["source"],
             role_title=title,
             company_name=company,
+            source_job_id=data.get("source_job_id"),
+            job_url=data.get("job_url"),
+            location_raw=data.get("location_raw"),
+            description=data.get("description"),
             role_category=infer_role_category(title),
             job_function=infer_job_function(title),
             industry=infer_industry(company, title),
@@ -28,7 +93,7 @@ def save_jobs(db, jobs_data):
             employment_type=data.get("employment_type", "permanent"),
             work_type=data.get("work_type", "remote"),
             country=data.get("country", "Unknown"),
-            language_required=infer_language(title),
+            language_required=data.get("language_required") or infer_language(title),
             rate_raw=data.get("rate_raw"),
             rate_normalized_eur_day=normalize_rate(data.get("rate_raw"), data.get("rate_type")),
             rate_type=data.get("rate_type"),
@@ -37,19 +102,18 @@ def save_jobs(db, jobs_data):
             scraped_date=datetime.now().date()
         )
         db.add(job)
+        saved += 1
     db.commit()
+    return saved
 
 def scrape_freelancer(db):
     print("Scraping Freelancer API...")
     try:
         url = "https://www.freelancer.com/api/projects/0.1/projects/active"
-        keywords = os.getenv("FREELANCER_KEYWORDS", "developer,data,marketing,design").split(",")
+        keywords = split_env_list(os.getenv("FREELANCER_KEYWORDS"), "developer,data,marketing,design")
         limit = int(os.getenv("FREELANCER_LIMIT", "10"))
         jobs = []
         for query in keywords:
-            query = query.strip()
-            if not query:
-                continue
             params = {"query": query, "limit": limit, "user_details": True}
             res = requests.get(url, params=params)
             res.raise_for_status()
@@ -73,6 +137,8 @@ def scrape_freelancer(db):
 
                 jobs.append({
                     "source": "Freelancer",
+                    "source_job_id": project.get("id"),
+                    "job_url": f"https://www.freelancer.com/projects/{project.get('seo_url')}" if project.get("seo_url") else None,
                     "role_title": project.get("title"),
                     "company_name": company_name,
                     "country": project.get("currency", {}).get("country", "Unknown"),
@@ -81,11 +147,12 @@ def scrape_freelancer(db):
                     "rate_raw": str(project.get("budget", {}).get("minimum")) if project.get("budget", {}).get("minimum") else None,
                     "rate_type": "project",
                     "skills": skills,
+                    "description": project.get("preview_description") or project.get("description"),
                     "posted_date": posted_date
                 })
             time.sleep(1)
-        save_jobs(db, jobs)
-        print(f"Saved {len(jobs)} jobs from Freelancer.")
+        saved = save_jobs(db, jobs)
+        print(f"Saved {saved} jobs from Freelancer.")
     except Exception as e:
         print(f"Error scraping Freelancer: {e}")
 
@@ -101,60 +168,64 @@ COUNTRY_MAP = {
 def scrape_linkedin(db):
     print("Scraping LinkedIn (Public)...")
     try:
-        locations_str = os.getenv("LINKEDIN_LOCATIONS", "Netherlands,Germany,France")
-        locations = [loc.strip() for loc in locations_str.split(",") if loc.strip()]
-        keyword = os.getenv("LINKEDIN_KEYWORD", "engineer")
+        locations = split_env_list(os.getenv("LINKEDIN_LOCATIONS"), "Netherlands,Germany,France")
+        keywords = split_env_list(os.getenv("LINKEDIN_KEYWORD"), "engineer")
         jobs = []
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5"
+        }
         for location in locations:
-            url = f"https://www.linkedin.com/jobs/search?keywords={keyword}&location={location}"
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "en-US,en;q=0.5"
-            }
-            res = requests.get(url, headers=headers, timeout=15)
-            soup = BeautifulSoup(res.text, "html.parser")
-            
-            job_cards = soup.find_all("div", class_="base-search-card__info")
-            for card in job_cards:
-                title_elem = card.find("h3", class_="base-search-card__title")
-                company_elem = card.find("h4", class_="base-search-card__subtitle")
-                if not title_elem or not company_elem:
-                    continue
+            for keyword in keywords:
+                url = f"https://www.linkedin.com/jobs/search?keywords={quote_plus(keyword)}&location={quote_plus(location)}"
+                res = requests.get(url, headers=headers, timeout=15)
+                res.raise_for_status()
+                soup = BeautifulSoup(res.text, "html.parser")
 
-                time_elem = card.find("time", class_="job-search-card__listdate")
-                posted_date = None
-                if time_elem and time_elem.get("datetime"):
-                    try:
-                        posted_date = datetime.fromisoformat(time_elem["datetime"].replace("Z", "+00:00")).date()
-                    except (ValueError, TypeError):
-                        pass
+                cards = soup.find_all("div", class_="base-card")
+                if not cards:
+                    cards = soup.find_all("div", class_="base-search-card__info")
 
-                work_type_elem = card.find("span", class_="job-search-card__remote")
-                work_type = "hybrid"
-                if work_type_elem:
-                    wt = work_type_elem.text.strip().lower()
-                    if "remote" in wt:
-                        work_type = "remote"
-                    elif "on-site" in wt or "onsite" in wt:
-                        work_type = "onsite"
-                    elif "hybrid" in wt:
-                        work_type = "hybrid"
+                for card in cards:
+                    info = card.find("div", class_="base-search-card__info") or card
+                    title_elem = info.find("h3", class_="base-search-card__title")
+                    company_elem = info.find("h4", class_="base-search-card__subtitle")
+                    if not title_elem or not company_elem:
+                        continue
 
-                jobs.append({
-                    "source": "LinkedIn",
-                    "role_title": title_elem.text.strip(),
-                    "company_name": company_elem.text.strip(),
-                    "country": COUNTRY_MAP.get(location, location[:2].upper()),
-                    "employment_type": "permanent",
-                    "work_type": work_type,
-                    "rate_raw": None,
-                    "rate_type": "annual",
-                    "posted_date": posted_date
-                })
-            time.sleep(2)
-        save_jobs(db, jobs)
-        print(f"Saved {len(jobs)} jobs from LinkedIn.")
+                    link_elem = card.find("a", href=True)
+                    location_elem = info.find("span", class_="job-search-card__location")
+                    time_elem = info.find("time", class_="job-search-card__listdate") or info.find("time")
+
+                    work_type_elem = info.find("span", class_="job-search-card__remote")
+                    work_type = "hybrid"
+                    if work_type_elem:
+                        wt = work_type_elem.text.strip().lower()
+                        if "remote" in wt:
+                            work_type = "remote"
+                        elif "on-site" in wt or "onsite" in wt:
+                            work_type = "onsite"
+                        elif "hybrid" in wt:
+                            work_type = "hybrid"
+
+                    jobs.append({
+                        "source": "LinkedIn",
+                        "source_job_id": card.get("data-entity-urn"),
+                        "job_url": link_elem["href"] if link_elem else None,
+                        "role_title": title_elem.text.strip(),
+                        "company_name": company_elem.text.strip(),
+                        "location_raw": location_elem.text.strip() if location_elem else location,
+                        "country": COUNTRY_MAP.get(location, location[:2].upper()),
+                        "employment_type": "permanent",
+                        "work_type": work_type,
+                        "rate_raw": None,
+                        "rate_type": "annual",
+                        "posted_date": time_elem.get("datetime") if time_elem else None,
+                    })
+                time.sleep(2)
+        saved = save_jobs(db, jobs)
+        print(f"Saved {saved} jobs from LinkedIn.")
     except Exception as e:
         print(f"Error scraping LinkedIn: {e}")
 
@@ -162,8 +233,7 @@ def scrape_eures(db):
     print("Scraping EURES API...")
     try:
         url = "https://europa.eu/eures/api/jv-searchengine/public/jv-search/search"
-        keywords_str = os.getenv("EURES_KEYWORDS", "developer,data scientist,marketing,designer,engineer")
-        keywords = [kw.strip() for kw in keywords_str.split(",") if kw.strip()]
+        keywords = split_env_list(os.getenv("EURES_KEYWORDS"), "developer,data scientist,marketing,designer,engineer")
         results_per_page = int(os.getenv("EURES_RESULTS_PER_PAGE", "10"))
         jobs = []
         for keyword in keywords:
@@ -240,112 +310,221 @@ def scrape_eures(db):
 
                 jobs.append({
                     "source": "EURES",
+                    "source_job_id": jv.get("id") or jv.get("jobVacancyId"),
+                    "job_url": jv.get("url") or jv.get("detailsUrl"),
                     "role_title": jv.get("title", "Unknown"),
                     "company_name": employer.get("name", "Unknown"),
+                    "location_raw": ", ".join(location_map.keys()) if location_map else country,
                     "country": country,
                     "employment_type": emp_type,
                     "work_type": work_type,
                     "rate_raw": rate_raw,
                     "rate_type": rate_type,
                     "skills": skills,
+                    "description": jv.get("description") or jv.get("jobDescription"),
                     "posted_date": posted_date
                 })
             time.sleep(0.5)
-        save_jobs(db, jobs)
-        print(f"Saved {len(jobs)} jobs from EURES.")
+        saved = save_jobs(db, jobs)
+        print(f"Saved {saved} jobs from EURES.")
     except Exception as e:
         print(f"Error scraping EURES: {e}")
 
-def scrape_indeed(db):
-    print("Scraping Indeed with Playwright...")
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page = browser.new_page()
-            countries_str = os.getenv("INDEED_COUNTRIES", "nl:Netherlands,de:Germany,fr:France")
-            country_pairs = [c.strip() for c in countries_str.split(",") if c.strip()]
-            query = os.getenv("INDEED_QUERY", "developer")
-            max_per_country = int(os.getenv("INDEED_MAX_PER_COUNTRY", "10"))
-            jobs = []
-            for pair in country_pairs:
-                parts = pair.split(":")
-                if len(parts) != 2:
+def element_text(root, selectors):
+    for selector in selectors:
+        try:
+            element = root.query_selector(selector)
+            if not element:
+                continue
+            text_value = clean_text(element.inner_text())
+            if text_value:
+                return text_value
+        except Exception:
+            continue
+    return None
+
+def element_texts(root, selectors, limit=20):
+    values = []
+    seen = set()
+    for selector in selectors:
+        try:
+            for element in root.query_selector_all(selector):
+                text_value = clean_text(element.inner_text())
+                key = text_value.lower() if text_value else None
+                if not text_value or key in seen:
                     continue
-                code, country_name = parts[0].strip(), parts[1].strip()
-                print(f"Scraping Indeed {code.upper()}...")
-                try:
-                    page.goto(f"https://{code}.indeed.com/jobs?q={query}", timeout=15000)
-                    page.wait_for_selector(".job_seen_beacon", timeout=5000)
-                    job_elements = page.query_selector_all(".job_seen_beacon")
-                    for elem in job_elements[:max_per_country]:
-                        title = elem.query_selector("h2.jobTitle").inner_text() if elem.query_selector("h2.jobTitle") else query.capitalize()
-                        company = elem.query_selector(".companyName").inner_text() if elem.query_selector(".companyName") else "Unknown"
+                values.append(text_value)
+                seen.add(key)
+                if len(values) >= limit:
+                    return values
+        except Exception:
+            continue
+    return values
 
-                        meta_spans = elem.query_selector_all("[data-testid='attribute_snippet_testid'] span")
-                        employment_type = "contract"
-                        work_type = "remote"
-                        salary_raw = None
-                        for span in meta_spans:
-                            text = span.inner_text().lower()
-                            if any(t in text for t in ["full-time", "full time", "fulltime", "permanent"]):
-                                employment_type = "permanent"
-                            elif any(t in text for t in ["part-time", "part time", "parttime"]):
-                                employment_type = "part-time"
-                            elif "contract" in text or "temporary" in text:
-                                employment_type = "contract"
-                            if "remote" in text:
-                                work_type = "remote"
-                            elif "hybrid" in text:
-                                work_type = "hybrid"
-                            elif "on-site" in text or "onsite" in text:
-                                work_type = "onsite"
-                            if any(c in text for c in ["€", "$", "£", "eur", "usd", "k", "/year", "/month", "/hour", "/day", "salary", "wage"]):
-                                salary_raw = text
+def element_attr(root, selectors, attr_name):
+    for selector in selectors:
+        try:
+            element = root.query_selector(selector)
+            if not element:
+                continue
+            value = clean_text(element.get_attribute(attr_name))
+            if value:
+                return value
+        except Exception:
+            continue
+    return None
 
-                        date_elem = elem.query_selector("[data-testid='jobsearch-date']")
-                        posted_date = None
-                        if date_elem:
-                            date_text = date_elem.inner_text().lower()
-                            if "today" in date_text or "just posted" in date_text:
-                                posted_date = datetime.now().date()
-                            elif "yesterday" in date_text:
-                                posted_date = (datetime.now() - timedelta(days=1)).date()
-                            elif "+" in date_text and "day" in date_text:
-                                try:
-                                    days = int(''.join(filter(str.isdigit, date_text.split("+")[0])))
-                                    posted_date = (datetime.now() - timedelta(days=days)).date()
-                                except ValueError:
-                                    pass
+def accept_cookie_banner(page):
+    try:
+        for button in page.query_selector_all("button"):
+            label = clean_text(button.inner_text(), default="").lower()
+            if label in {"accept", "accept all", "agree", "i agree", "allow all cookies"}:
+                button.click(timeout=1000)
+                page.wait_for_timeout(500)
+                return
+    except Exception:
+        pass
 
-                        rate_type = "monthly"
-                        if salary_raw:
-                            if "/hour" in salary_raw or "per hour" in salary_raw:
-                                rate_type = "hourly"
-                            elif "/day" in salary_raw or "per day" in salary_raw:
-                                rate_type = "daily"
-                            elif "/year" in salary_raw or "per year" in salary_raw or "k" in salary_raw:
-                                rate_type = "annual"
-                            elif "/week" in salary_raw or "per week" in salary_raw:
-                                rate_type = "weekly"
+def indeed_job_id_from_href(href):
+    if not href:
+        return None
+    parsed = urlparse(href)
+    params = parse_qs(parsed.query)
+    for key in ("jk", "vjk"):
+        if params.get(key):
+            return clean_text(params[key][0], max_length=255)
+    match = re.search(r"(?:jk=|vjk=|jk:)([A-Za-z0-9_-]+)", href)
+    return clean_text(match.group(1), max_length=255) if match else None
 
-                        jobs.append({
-                            "source": "Indeed",
-                            "role_title": title,
-                            "company_name": company,
-                            "country": code.upper(),
-                            "employment_type": employment_type,
-                            "work_type": work_type,
-                            "rate_raw": salary_raw,
-                            "rate_type": rate_type,
-                            "posted_date": posted_date
-                        })
-                except Exception as e:
-                    print(f"Failed to scrape Indeed {code}: {e}")
-            browser.close()
-            save_jobs(db, jobs)
-            print(f"Saved {len(jobs)} jobs from Indeed.")
+def indeed_search_url(country_code, query, days_back):
+    params = f"q={quote_plus(query)}&sort=date"
+    if days_back:
+        params += f"&fromage={int(days_back)}"
+    return f"https://{country_code}.indeed.com/jobs?{params}"
+
+def scrape_indeed_detail(detail_page, job_url):
+    details = {}
+    if not job_url:
+        return details
+    try:
+        detail_page.goto(job_url, wait_until="domcontentloaded", timeout=20000)
+        detail_page.wait_for_timeout(1200)
+        accept_cookie_banner(detail_page)
+
+        description = element_text(detail_page, [
+            "#jobDescriptionText",
+            "[data-testid='jobsearch-JobComponent-description']",
+            ".jobsearch-jobDescriptionText",
+            "[class*='jobDescription']",
+        ])
+        title = element_text(detail_page, [
+            "[data-testid='jobsearch-JobInfoHeader-title']",
+            "h1",
+        ])
+        company = element_text(detail_page, [
+            "[data-testid='inlineHeader-companyName']",
+            "[data-testid='company-name']",
+            ".jobsearch-InlineCompanyRating a",
+            ".jobsearch-CompanyInfoContainer",
+        ])
+        location = element_text(detail_page, [
+            "[data-testid='job-location']",
+            "[data-testid='text-location']",
+            ".jobsearch-JobInfoHeader-subtitle div",
+        ])
+        detail_metadata = element_texts(detail_page, [
+            "#salaryInfoAndJobType span",
+            "[data-testid='jobsearch-JobMetadataHeader-item']",
+            "[data-testid='jobsearch-OtherJobDetailsContainer'] div",
+            ".jobsearch-JobMetadataHeader-item",
+        ])
+        rate_raw, rate_type = extract_rate_details(" ".join(detail_metadata), description)
+
+        details.update({
+            "role_title": title,
+            "company_name": company,
+            "location_raw": location,
+            "description": description,
+            "metadata": " ".join(detail_metadata),
+            "rate_raw": rate_raw,
+            "rate_type": rate_type,
+        })
     except Exception as e:
-        print(f"Playwright error: {e}")
+        print(f"  Indeed detail skipped for {job_url}: {e}")
+    return {key: value for key, value in details.items() if value}
+
+def parse_indeed_card(card, base_url, query, country_code, country_name):
+    title = element_text(card, [
+        "h2.jobTitle span[title]",
+        "h2.jobTitle",
+        "[data-testid='job-title']",
+        "a[data-jk] span[title]",
+        "a[data-jk]",
+    ])
+    company = element_text(card, [
+        "[data-testid='company-name']",
+        ".companyName",
+        "[data-testid='companyName']",
+    ])
+    location = element_text(card, [
+        "[data-testid='text-location']",
+        ".companyLocation",
+        "[data-testid='job-location']",
+    ])
+    summary = " ".join(element_texts(card, [
+        "[data-testid='job-snippet']",
+        ".job-snippet",
+        ".underShelfFooter",
+    ]))
+    metadata_values = element_texts(card, [
+        "[data-testid='attribute_snippet_testid']",
+        "[data-testid='salary-snippet-container']",
+        ".salary-snippet-container",
+        ".metadata",
+        ".jobMetaDataGroup span",
+    ])
+    metadata = " ".join(metadata_values)
+    posted_text = element_text(card, [
+        "[data-testid='myJobsStateDate']",
+        "[data-testid='jobsearch-date']",
+        ".date",
+    ])
+    href = element_attr(card, [
+        "h2.jobTitle a",
+        "a[data-jk]",
+        ".jcs-JobTitle",
+        "a[href*='viewjob']",
+        "a[href*='clk']",
+    ], "href")
+    job_url = urljoin(base_url, href) if href else None
+    source_job_id = (
+        element_attr(card, ["a[data-jk]", "[data-jk]"], "data-jk")
+        or indeed_job_id_from_href(job_url)
+    )
+    if source_job_id:
+        job_url = f"{base_url}/viewjob?jk={source_job_id}"
+
+    rate_raw, rate_type = extract_rate_details(metadata, summary)
+
+    return {
+        "source": "Indeed",
+        "source_job_id": source_job_id,
+        "job_url": job_url,
+        "role_title": title or query.title(),
+        "company_name": company or "Unknown",
+        "location_raw": location,
+        "country": normalize_country(country_name or country_code),
+        "employment_type": metadata,
+        "work_type": " ".join([location or "", metadata, summary]),
+        "rate_raw": rate_raw,
+        "rate_type": rate_type,
+        "summary": summary,
+        "metadata": metadata,
+        "posted_text": posted_text,
+}
+
+def scrape_indeed_legacy(db):
+    return scrape_indeed(db)
 
 def scrape_kaggle(db):
     print("Scraping open-apply-jobs dataset (Kaggle replacement)...")
@@ -437,19 +616,23 @@ def scrape_kaggle(db):
 
             jobs.append({
                 "source": "Kaggle",
+                "source_job_id": row.get("id") or row.get("job_id"),
+                "job_url": row.get("url") or row.get("job_url"),
                 "role_title": row.get("title", "Unknown"),
                 "company_name": row.get("source_slug", "Unknown"),
+                "location_raw": ", ".join(locations) if isinstance(locations, list) else str(locations),
                 "country": country,
                 "employment_type": emp_type,
                 "work_type": work_type,
                 "rate_raw": rate_raw,
                 "rate_type": rate_type,
                 "skills": skills,
+                "description": row.get("description"),
                 "posted_date": posted_date
             })
 
-        save_jobs(db, jobs)
-        print(f"Saved {len(jobs)} jobs from open-apply-jobs dataset.")
+        saved = save_jobs(db, jobs)
+        print(f"Saved {saved} jobs from open-apply-jobs dataset.")
     except Exception as e:
         print(f"Error scraping open-apply-jobs dataset: {e}")
 
@@ -459,11 +642,9 @@ def scrape_malt(db):
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page()
-            keywords_str = os.getenv("MALT_KEYWORDS", "developer,data scientist,designer,marketing")
-            keywords = [k.strip() for k in keywords_str.split(",") if k.strip()]
+            keywords = split_env_list(os.getenv("MALT_KEYWORDS"), "developer,data scientist,designer,marketing")
             max_per_keyword = int(os.getenv("MALT_MAX_PER_KEYWORD", "10"))
-            locations_str = os.getenv("MALT_LOCATIONS", "netherlands,germany,france")
-            locations = [l.strip() for l in locations_str.split(",") if l.strip()]
+            locations = split_env_list(os.getenv("MALT_LOCATIONS"), "netherlands,germany,france")
             jobs = []
             for location in locations:
                 for keyword in keywords:
@@ -480,6 +661,7 @@ def scrape_malt(db):
                                 # Extract name/title
                                 title_el = card.query_selector("h2, h3, [class*='title'], [class*='name']")
                                 title = title_el.inner_text().strip() if title_el else f"{keyword.capitalize()} Freelancer"
+                                link = element_attr(card, ["a[href]"], "href")
 
                                 # Extract daily rate
                                 rate_el = card.query_selector("[class*='rate'], [class*='price'], [class*='daily']")
@@ -497,14 +679,17 @@ def scrape_malt(db):
 
                                 jobs.append({
                                     "source": "Malt",
+                                    "job_url": urljoin("https://www.malt.com", link) if link else None,
                                     "role_title": title,
                                     "company_name": "Malt Freelancer",
+                                    "location_raw": country_text,
                                     "country": country,
                                     "employment_type": "freelance",
                                     "work_type": "remote",
                                     "rate_raw": rate_raw,
                                     "rate_type": rate_type,
                                     "skills": skills,
+                                    "description": card.inner_text(),
                                     "posted_date": datetime.now().date()
                                 })
                                 count += 1
@@ -515,10 +700,84 @@ def scrape_malt(db):
                         print(f"  Failed for '{keyword}' in '{location}': {e}")
                     time.sleep(2)
             browser.close()
-            save_jobs(db, jobs)
-            print(f"Saved {len(jobs)} jobs from Malt.")
+            saved = save_jobs(db, jobs)
+            print(f"Saved {saved} jobs from Malt.")
     except Exception as e:
         print(f"Playwright error scraping Malt: {e}")
+
+
+def scrape_indeed(db):
+    print("Scraping Indeed with Playwright...")
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
+            context = browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+                ),
+                locale="en-US",
+                viewport={"width": 1366, "height": 900},
+            )
+            page = context.new_page()
+            detail_page = context.new_page()
+            country_pairs = split_env_list(os.getenv("INDEED_COUNTRIES"), "nl:Netherlands,de:Germany,fr:France")
+            queries = split_env_list(os.getenv("INDEED_QUERY"), "developer")
+            max_per_country = int(os.getenv("INDEED_MAX_PER_COUNTRY", "10"))
+            days_back = int(os.getenv("INDEED_DAYS_BACK", "14"))
+            jobs = []
+
+            for pair in country_pairs:
+                code, country_name = (pair.split(":", 1) + [""])[:2]
+                code = clean_text(code, default="").lower()
+                country_name = clean_text(country_name, default=code.upper())
+                if not code:
+                    continue
+
+                base_url = f"https://{code}.indeed.com"
+                for query in queries:
+                    print(f"Scraping Indeed {code.upper()} for '{query}'...")
+                    try:
+                        page.goto(indeed_search_url(code, query, days_back), wait_until="domcontentloaded", timeout=25000)
+                        page.wait_for_timeout(2500)
+                        accept_cookie_banner(page)
+                        page.wait_for_selector(".job_seen_beacon, [data-testid='slider_item'], .result", timeout=8000)
+                        cards = page.query_selector_all(".job_seen_beacon, [data-testid='slider_item'], .result")
+                        count = 0
+                        seen_ids = set()
+
+                        for card in cards:
+                            if count >= max_per_country:
+                                break
+
+                            job = parse_indeed_card(card, base_url, query, code, country_name)
+                            job_key = (
+                                job.get("source_job_id")
+                                or f"{job.get('role_title')}|{job.get('company_name')}|{job.get('location_raw')}"
+                            )
+                            if job_key in seen_ids:
+                                continue
+                            seen_ids.add(job_key)
+
+                            detail = scrape_indeed_detail(detail_page, job.get("job_url"))
+                            job.update({key: value for key, value in detail.items() if value})
+                            if not job.get("rate_type"):
+                                job["rate_type"] = infer_rate_type(job.get("rate_raw"))
+                            jobs.append(job)
+                            count += 1
+                            time.sleep(0.3)
+
+                        print(f"  Found {count} Indeed jobs for '{query}' in {code.upper()}")
+                    except Exception as e:
+                        print(f"Failed to scrape Indeed {code} for '{query}': {e}")
+                    time.sleep(1.5)
+
+            context.close()
+            browser.close()
+            saved = save_jobs(db, jobs)
+            print(f"Saved {saved} jobs from Indeed.")
+    except Exception as e:
+        print(f"Playwright error: {e}")
 
 
 if __name__ == "__main__":

@@ -1,8 +1,12 @@
 CREATE TABLE IF NOT EXISTS job_postings (
     id SERIAL PRIMARY KEY,
     source VARCHAR(255) NOT NULL,
+    source_job_id VARCHAR(255),
+    job_url VARCHAR(1024),
     role_title VARCHAR(255) NOT NULL,
     company_name VARCHAR(255),
+    location_raw VARCHAR(255),
+    description TEXT,
     role_category VARCHAR(255),
     job_function VARCHAR(255),
     industry VARCHAR(255),

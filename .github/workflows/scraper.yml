@@ -41,6 +41,7 @@ jobs:
           INDEED_QUERY: ${{ vars.INDEED_QUERY || 'developer' }}
           INDEED_COUNTRIES: ${{ vars.INDEED_COUNTRIES || 'nl:Netherlands,de:Germany,fr:France' }}
           INDEED_MAX_PER_COUNTRY: ${{ vars.INDEED_MAX_PER_COUNTRY || '10' }}
+          INDEED_DAYS_BACK: ${{ vars.INDEED_DAYS_BACK || '14' }}
           KAGGLE_MAX_PARQUET_FILES: ${{ vars.KAGGLE_MAX_PARQUET_FILES || '5' }}
           KAGGLE_DAYS_BACK: ${{ vars.KAGGLE_DAYS_BACK || '14' }}
           KAGGLE_FALLBACK_ROWS: ${{ vars.KAGGLE_FALLBACK_ROWS || '200' }}
